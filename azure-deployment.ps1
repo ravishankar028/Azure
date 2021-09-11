@@ -4,47 +4,33 @@
 #>
 
 # Load configuration file to read settings
-$ConfigFilePath = ".\config\config.ini";
+$ConfigFilePath = "config.ini";
 Get-Content $ConfigFilePath | foreach-object -begin {$h=@{}} -process { $k = [regex]::split($_,'='); if(($k[0].CompareTo("") -ne 0) -and ($k[0].StartsWith("[") -ne $True)) { $h.Add($k[0], $k[1]) } }
 
 #Define global parameters
 $nl = "`r`n";
+$Location = $h.Location;
+$ResourceGroupName = $h.ResourceGroupName;
+$EnvironmentPrefix = $h.EnvironmentPrefix;
+$SqlServerName = $EnvironmentPrefix + "-" + $h.SqlServerName;
 
-# Display the settings config
-$h;
-
+Write-Host "$nl********* Please login to continue *********"
 # Connect to Azure account
-# Connect-AzAccount -Subscription $h.SubscriptionId
+# Connect-AzAccount -Subscription $h.SubscriptionId;
 
-# Get resource groups info within the subscription
-Write-Host "$nl********** Getting resource group information **********"
-Get-AzResourceGroup
+clear;
 
-# Get a specific resource group within the subscrption
-Write-Host "$nl********** Getting resource group information - $h.ResourceGroupName **********"
-Get-AzResourceGroup -Name $h.ResourceGroupName -ErrorVariable ResourceGroupNotExists -ErrorAction SilentlyContinue
+$nl;
+Write-Host "$nl********** Provisioning resource group $ResourceGroupName in $Location"
+./base/provision-resourcegroup.ps1;
+Write-Host "Done..."
 
-# Create a resource group (if it does not exists)
-if($ResourceGroupNotExists)
-{
-	Write-Host "$nl********** Creating resource group $ResourceGroupName **********"
-	New-AzResourceGroup -Name $h.ResourceGroupName -Location $h.ResourceGroupLocation
-}
-else
-{
-	Write-Host "$nl********** Resource group already exists **********"
-}
+# Create SQL Server
+Write-Host "$nl********** Provisioning SQL Server **********"
+./base/provision-sql-server.ps1 -SqlServerName $SqlServerName `
+                                -AutosetServerFirewallRule $true `
+                                -AllowAllAzureIps $true;
 
-# Create a virtual machine using powershell
-
-## VM Account
-# Credentials for Local Admin account you created in the sysprepped (generalized) vhd image
-$VMPassword = ConvertTo-SecureString $h.VMPassword -AsPlainText -Force
-
-$VMCredential = New-Object System.Management.Automation.PSCredential ($h.VMUserName, $VMPassword);
-
-$VirtualMachineConfig = New-AzVMConfig -VMName $h.VMName -VMSize $h.VMSize
-$VirtualMachineConfig = Set-AzVMOperatingSystem -VM $VirtualMachineConfig -Windows -ComputerName $h.ComputerName -Credential $VMCredential -ProvisionVMAgent -EnableAutoUpdate
-
-# Create a virtual machine
-New-AzVM -ResourceGroupName $h.ResourceGroupName -Location $h.ResourceGroupLocation -VM $VirtualMachineConfig -Verbose
+./base/provision-database.ps1 -SqlServerName $SqlServerName `
+                                -DatabaseName $h.DatabaseName `
+                                -Edition $h.Edition;
